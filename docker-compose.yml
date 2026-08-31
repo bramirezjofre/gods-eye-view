@@ -19,7 +19,12 @@ services:
     container_name: gods-eye-view
     restart: unless-stopped
     ports:
-      - "127.0.0.1:5173:5173"
+      # 0.0.0.0:5173:5173 — bound to all interfaces so the app is reachable
+      # from the LAN. No auth — openGym-style deployments (NPM in front
+      # with auth) are not the default here; the upstream is a personal
+      # OSINT dashboard, not a public service. Restrict this to your LAN
+      # firewall if you don't trust the network.
+      - "5173:5173"
     environment:
       # Build-time public keys (baked into the client bundle). Leave
       # empty for the "ship without keys" mode — the 3D globe and Maps

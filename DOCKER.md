@@ -26,9 +26,9 @@ open http://127.0.0.1:5173
 
 ## Lo que tenés que saber
 
-- **Imagen**: `gods-eye-view:latest`, ~250 MB.
-- **Puerto**: 5173 (default de Vite). Cambialo en `docker-compose.yml` si necesitás otro.
-- **Bind**: por default `127.0.0.1:5173:5173` (solo LAN). Cambiá a `0.0.0.0` para exponer o pasalo por Nginx Proxy Manager con auth.
+- **Imagen**: `gods-eye-view:latest`, ~1.14 GB (Cesium engine bundle + sharp + @mapbox tile decoders dominan).
+- **Puerto**: 5173 (default de Vite).
+- **Bind**: `0.0.0.0:5173:5173` (escucha en todas las interfaces, accesible desde la LAN). Si querés restringir a solo localhost, cambiá a `127.0.0.1:5173:5173`. **No hay auth** — el upstream es un dashboard personal, no un servicio público. Si lo exponés a internet, pasalo por Nginx Proxy Manager con auth.
 - **Cache de proxies** (`./data/.gev-cache/`): sobrevive recreaciones. No la borres a menos que sepas lo que hacés — el siguiente boot re-quemaría cuota pública de Overpass y OpenSky.
 - **API keys opcionales**: sin keys la app arranca igual, pero las capas afectadas quedan vacías. La 3D globe funciona con OpenStreetMap como fallback sin token de Cesium ion.
 
