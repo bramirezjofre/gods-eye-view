@@ -1,0 +1,12 @@
+node_modules
+dist
+.gev-cache
+data
+.git
+.gitignore
+.DS_Store
+*.log
+.vscode
+.idea
+README.md
+*.md.bak

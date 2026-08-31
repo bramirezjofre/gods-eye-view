@@ -1,0 +1,53 @@
+name: gods-eye-view
+
+# Single-service compose. The SPA + its dev-server proxies (OpenSky,
+# Overpass, AISStream, TomTom, FIRMS, Re:Earth terrain, CCTV, GBFS,
+# radio-browser, Open-Meteo, GDELT, regional-brief, weather-effects,
+# adsb.lol, etc.) all run inside one container. The dashboard is exposed
+# on port 5173; if you want to reach it from another machine, change
+# "127.0.0.1:5173:5173" to "0.0.0.0:5173:5173" or proxy it via Nginx
+# Proxy Manager with auth (same pattern as open-gym-cluster).
+#
+# Optional API keys: leave them blank if you don't have them; the
+# relevant layers will simply be empty or fall back to a simulation.
+# See DATA_SOURCES.md in the upstream repo for the per-source terms.
+
+services:
+  web:
+    build: .
+    image: gods-eye-view:latest
+    container_name: gods-eye-view
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:5173:5173"
+    environment:
+      # Build-time public keys (baked into the client bundle). Leave
+      # empty for the "ship without keys" mode — the 3D globe and Maps
+      # features degrade gracefully but the rest of the app keeps working.
+      VITE_CESIUM_ION_TOKEN: ${VITE_CESIUM_ION_TOKEN:-}
+      VITE_GOOGLE_MAPS_API_KEY: ${VITE_GOOGLE_MAPS_API_KEY:-}
+
+      # Runtime keys. The server-side proxy reads these.
+      # OpenSky: OAuth2 credentials (a basic-auth pair is also accepted)
+      OPENSKY_CLIENT_ID: ${OPENSKY_CLIENT_ID:-}
+      OPENSKY_CLIENT_SECRET: ${OPENSKY_CLIENT_SECRET:-}
+      # TomTom: traffic flow API key
+      TOMTOM_API_KEY: ${TOMTOM_API_KEY:-}
+      # NASA FIRMS: shared MAP_KEY (https://firms.modaps.eosdis.nasa.gov/api/map_key/)
+      FIRMS_MAP_KEY: ${FIRMS_MAP_KEY:-}
+      # AISStream: WebSocket token for live vessels
+      AISSTREAM_API_KEY: ${AISSTREAM_API_KEY:-}
+      # Launch Library 2: optional token (raises the 15/h anonymous cap)
+      LL2_API_TOKEN: ${LL2_API_TOKEN:-}
+      # TfL (London traffic cameras): optional app key (raises rate limit)
+      TFL_APP_KEY: ${TFL_APP_KEY:-}
+      # OpenAI Realtime (voice control): required for the AI assistant
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      # Google Places (cockpit scene context): required for the in-app
+      # search/places layer
+      GOOGLE_MAPS_API_KEY: ${VITE_GOOGLE_MAPS_API_KEY:-}
+    volumes:
+      # Disk cache for the Overpass and other proxies (7-30 day TTLs).
+      # Survives container recreates so we don't re-burn public mirror
+      # quota after every redeploy.
+      - ./data:/app/.gev-cache
