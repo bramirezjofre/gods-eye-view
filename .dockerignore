@@ -10,3 +10,30 @@ data
 .idea
 README.md
 *.md.bak
+
+# GitHub Actions workflow files are not needed in the runtime image
+# (we have a dedicated CI workflow at .github/workflows/tests.yml,
+# but that runs on GitHub Actions runners, not inside our container).
+.github
+
+# Documentation. docs/media/ is ~68 MB of GIFs that we never need
+# in the build context — they're for human reading on GitHub only.
+# The build only needs package.json, vite.config.js, src/, and the
+# data assets referenced from src/data/local_data/ (which are loaded
+# at runtime, so they're copied by COPY . . in the build stage).
+# (The local_data assets are tiny compared to docs/media — kept by
+# default since the .dockerignore doesn't exclude them explicitly.)
+docs
+
+# All *.test.mjs test files. They don't influence the build output
+# (vite build only bundles src/*.js, not test files). They also
+# don't influence runtime. Excluding them shaves ~1-2 MB off the
+# build context and avoids accidentally leaking test-only helpers
+# into the image.
+**/*.test.mjs
+
+# Coverage reports, build caches, IDE files.
+coverage
+*.tsbuildinfo
+.eslintcache
+.cache
