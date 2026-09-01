@@ -1,3 +1,4 @@
+# syntax=docker/dockerfile:1.7
 # God's Eye View — Dockerfile
 #
 # Two stages:
@@ -33,9 +34,12 @@
 FROM node:24-alpine AS build
 WORKDIR /app
 
-# Pinned lockfile copy first so npm ci is reproducible.
+# Pinned lockfile copy first so npm ci is reproducible. The cache mount
+# persists the npm download cache between builds (root-owned, so only
+# available to subsequent builds, not to the running container).
 COPY package.json package-lock.json ./
-RUN npm ci --no-audit --no-fund
+RUN --mount=type=cache,target=/root/.npm \
+    npm ci --no-audit --no-fund
 
 # Project source.
 COPY . .
