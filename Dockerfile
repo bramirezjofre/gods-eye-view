@@ -2,17 +2,12 @@
 #
 # Two stages:
 #   1. build   — installs ALL deps (production + dev), runs `vite build`
-#                to produce dist/. The devDeps are needed by vite-plugin-cesium
-#                and the build pipeline.
-#   2. runtime — installs ONLY production deps. To run `vite preview`
-#                (which is the runtime command we use so all the
-#                configurePreviewServer() proxies in vite.config.js stay
-#                active in the running container), we re-add vite +
-#                vite-plugin-cesium + sharp. They are *not* modified to
-#                `dependencies` in package.json (that would touch the
-#                upstream tree) — they live in /node_modules of the
-#                runtime image and are installed with --no-save so
-#                package.json/package-lock.json are not mutated.
+#                to produce dist/. devDeps are only needed for build.
+#   2. runtime — installs ONLY production deps + the bundled vite +
+#                vite-plugin-cesium + sharp + ws that we moved from
+#                devDependencies to dependencies in this fork's
+#                package.json (the upstream has them as devDeps but
+#                `vite preview` needs them at runtime).
 #
 # Why not a static-server (nginx, caddy) only? Because the upstream
 # app is NOT a static SPA — vite.config.js registers ~20 server-side
@@ -28,8 +23,11 @@
 # Engine note: package.json requires "node >=24.14.0 <25 || >=26 <27".
 # node:24-alpine is on the 24.x line and is accepted.
 #
-# Final image size: ~400 MB. Cesium engine bundle + sharp + @mapbox
-# tile decoders are the bulk.
+# Final image size: ~700 MB. Cesium engine bundle + sharp + @mapbox
+# tile decoders are the bulk. node_modules/cesium is ~150 MB, of
+# which ~140 MB is Build/Source/Apps/Specs/scripts that vite-plugin-cesium
+# copies into dist/cesium/ at build time and never touches again at
+# runtime — those get trimmed in this Dockerfile.
 
 # ------------------------------------------------------------------ build
 FROM node:24-alpine AS build
@@ -57,24 +55,22 @@ RUN npm run build
 FROM node:24-alpine AS runtime
 WORKDIR /app
 
-# `npm prune --omit=dev` would drop vite (it is a devDep in the
-# upstream package.json), but `vite preview` is what we run. The
-# --no-save installs the same packages without mutating package.json
-# or package-lock.json — important because we don't want to change
-# the upstream tree as part of the dockerization. We also reinstall
-# sharp because vite-plugin-cesium uses it for tile decoding at
-# preview time.
-RUN npm prune --omit=dev --no-audit --no-fund \
- && npm install --no-save --no-audit --no-fund \
-      vite@^6.0.0 \
-      vite-plugin-cesium@^1.2.23
-
-# Copy only the files the preview server actually needs at runtime.
-# (We do this AFTER the prune+install above so node_modules is in
-# the right state.) Note: vite.config.js imports from src/data/* and
-# src/voice/* — the build stage already bundled these into dist/, but
-# `vite preview` re-evaluates the config at startup, so the source
-# files have to be present in the runtime image too.
+# Production-only deps. The fork's package.json has `vite`,
+# `vite-plugin-cesium`, `sharp`, `ws` as dependencies (the upstream
+# has them as devDeps, but we need them at runtime to run
+# `vite preview`). The only thing left in devDependencies is
+# `puppeteer`, which gets dropped here.
+#
+# Combine this with the cesium trim in the SAME RUN so the deleted
+# files don't leak into the runtime layer (Docker layers are
+# immutable — a separate `RUN rm` would leave the bytes in the COPY
+# layer, only shadowing them with a smaller delta layer on top).
+#
+# Trim rationale: cesium's `Build/`, `Source/`, `Apps/`, `Specs/` and
+# `scripts/` directories are only referenced at *build* time by
+# vite-plugin-cesium (it copies them into dist/cesium/). At runtime,
+# /app/dist/cesium/Cesium.js is what gets served to the browser —
+# node_modules/cesium/* is dead weight (~150 MB).
 COPY --from=build --chown=1000:1000 /app/package.json     /app/package.json
 COPY --from=build --chown=1000:1000 /app/package-lock.json /app/package-lock.json
 COPY --from=build --chown=1000:1000 /app/node_modules      /app/node_modules
@@ -82,10 +78,20 @@ COPY --from=build --chown=1000:1000 /app/dist              /app/dist
 COPY --from=build --chown=1000:1000 /app/vite.config.js   /app/vite.config.js
 COPY --from=build --chown=1000:1000 /app/src               /app/src
 
-# The disk cache directory needs to exist (and be writable by the
-# non-root user) before the server starts.
-RUN mkdir -p /app/.gev-cache/overpass \
- && chown -R 1000:1000 /app/.gev-cache
+RUN npm prune --omit=dev --no-audit --no-fund \
+ && rm -rf /app/node_modules/cesium/Build \
+           /app/node_modules/cesium/Source \
+           /app/node_modules/cesium/Apps \
+           /app/node_modules/cesium/Specs \
+           /app/node_modules/cesium/scripts \
+ && rm -f  /app/node_modules/cesium/CHANGES.md \
+           /app/node_modules/cesium/index.cjs \
+           /app/node_modules/cesium/eslint.config.js \
+           /app/node_modules/cesium/lint-staged.config.js \
+           /app/node_modules/cesium/sgconfig.yml \
+           /app/node_modules/cesium/tsconfig.json \
+ && mkdir -p /app/.gev-cache/overpass \
+ && chown -R 1000:1000 /app/node_modules /app/.gev-cache
 
 # Drop privileges. alpine's bundled `node` user is uid:gid 1000:1000.
 # The COPYs above already chowned the files to that uid; using the
@@ -100,9 +106,6 @@ ENV HOST=0.0.0.0
 
 EXPOSE 5173
 
-# Healthcheck: hit the SPA index. Vite preview returns 200 for the
-# built index.html. We avoid the /api/* routes because the proxies are
-# rate-limited and a HEAD flood is worse than no check.
 HEALTHCHECK --interval=30s --timeout=5s --retries=3 \
   CMD wget -qO- http://127.0.0.1:5173/ >/dev/null || exit 1
 
