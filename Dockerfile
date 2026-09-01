@@ -110,7 +110,19 @@ ENV HOST=0.0.0.0
 
 EXPOSE 5173
 
-HEALTHCHECK --interval=30s --timeout=5s --retries=3 \
+# Healthcheck hits /, the SPA index. We deliberately avoid /api/*
+# proxies — they're rate-limited by their upstream providers
+# (OpenSky, Overpass, etc.) and a 30-second healthcheck loop would
+# burn quota. /'s response is served by vite preview itself; a 200
+# means the node process is alive and the proxy middleware is
+# mounted (vite would crash on startup if configurePreviewServer()
+# threw).
+#
+# --start-period=10s gives vite preview ~10s to boot before the
+# first failure counts toward --retries=3. The first health probe
+# lands ~30s after container start, but the start-period covers the
+# 1-3s vite needs plus any incidental startup I/O.
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
   CMD wget -qO- http://127.0.0.1:5173/ >/dev/null || exit 1
 
 CMD ["node_modules/.bin/vite", "preview", "--host", "0.0.0.0", "--port", "5173"]
